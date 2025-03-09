@@ -1,40 +1,34 @@
 pipeline {
-    agent {
-        kubernetes {
-            yaml """
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    jenkins-agent: "true"
-spec:
-  containers:
-  - name: docker
-    image: docker:latest
-    command:
-    - cat
-    tty: true
-    volumeMounts:
-    - mountPath: "/var/run/docker.sock"
-      name: docker-socket
-  volumes:
-  - name: docker-socket
-    hostPath:
-      path: /var/run/docker.sock
-"""
-        }
+    agent any
+
+    environment {
+        DOCKER_IMAGE = 'ton_username_dockerhub/fastapi-app'
+        KUBE_NAMESPACE = 'default' // ou autre namespace selon ta config
     }
+
     stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', credentialsId: 'GIT_CREDENTIALS_ID', url: 'https://github.com/alphaly94/Jenkins_devops_exams.git'
+            }
+        }
+
         stage('Build & Push Docker') {
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'DOCKER_PASS', variable: 'DOCKER_PASSWORD')]) {
-                        sh """
-                        docker login -u alfonsodyka --password-stdin <<< "$DOCKER_PASSWORD"
-                        docker build -t alfonsodyka/myimage:${env.BUILD_NUMBER} .
-                        docker push alfonsodyka/myimage:${env.BUILD_NUMBER}
-                        """
+                    docker.withRegistry('https://index.docker.io/v1/', 'DOCKER_CREDENTIALS_ID') {
+                        def app = docker.build("${DOCKER_IMAGE}:${env.BUILD_ID}")
+                        app.push()
+                        app.push('latest')
                     }
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh "kubectl set image deployment/fastapi-app fastapi=${DOCKER_IMAGE}:${env.BUILD_ID} -n ${KUBE_NAMESPACE}"
                 }
             }
         }
